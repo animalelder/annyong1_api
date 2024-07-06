@@ -1,4 +1,13 @@
 require('dotenv').config();
+const express = require('express');
+const app = express();
+
+const bodyParser = require('body-parser');
+
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+
+let auth = require('./auth')(app);
 
 const passport = require('passport');
 require('./passport');
@@ -6,40 +15,30 @@ require('./passport');
 const mongoose = require('mongoose');
 const Models = require('./models');
 
-const express = require('express');
-const app = express();
-
-
-let auth = require('./auth')(app);
-
-const bodyParser = require('body-parser');
-
 uuid = require('uuid');
 
 const { check, validationResult } = require('express-validator');
 
 const cors = require('cors');
 
-app.use(bodyParser.urlencoded({ extended: true }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
 const Movies = Models.Movie;
 const Users = Models.User;
 
 mongoose.connect(process.env.CONNECTION_URI, { useNewUrlParser: true, useUnifiedTopology: true });
 
-app.post('/signup',
+app.post(
+  '/signup',
   [
     check('Username', 'Username is required').isLength({ min: 5 }),
     check('Username', 'Username contains non-alphanumeric characters - not allowed.').isAlphanumeric(),
     check('Password', 'Password is required').not().isEmpty(),
-    check('Email', 'Email does not appear to be valid').isEmail()
-  ], async (req, res) => {
+    check('Email', 'Email does not appear to be valid').isEmail(),
+  ],
+  async (req, res) => {
     let errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(422).json({
-        errors: errors.array()
+        errors: errors.array(),
       });
     }
     let hashedPassword = Users.hashPassword(req.body.Password);
@@ -48,14 +47,15 @@ app.post('/signup',
         if (user) {
           return res.status(400).send(req.body.Username + ' already exists');
         } else {
-          Users
-            .create({
-              Username: req.body.Username,
-              Password: hashedPassword,
-              Email: req.body.Email,
-              Birthday: req.body.Birthday
+          Users.create({
+            Username: req.body.Username,
+            Password: hashedPassword,
+            Email: req.body.Email,
+            Birthday: req.body.Birthday,
+          })
+            .then((user) => {
+              res.status(201).json(user);
             })
-            .then((user) => { res.status(201).json(user) })
             .catch((error) => {
               console.error(error);
               res.status(500).send('Error: ' + error);
@@ -66,20 +66,21 @@ app.post('/signup',
         console.error(error);
         res.status(500).send('Error: ' + error);
       });
-  });
+  }
+);
 
 app.post('/users/:id/:movieTitle', (req, res) => {
   const { id, movieTitle } = req.params;
 
-  let user = users.find(user => user.id == id);
+  let user = users.find((user) => user.id == id);
 
   if (user) {
     user.favoriteMovies.push(movieTitle);
-    res.status(200).send(`${movieTitle} has been added to user ${id}'s array`);;
+    res.status(200).send(`${movieTitle} has been added to user ${id}'s array`);
   } else {
-    res.status(400).send('no such user')
+    res.status(400).send('no such user');
   }
-})
+});
 
 app.delete('/users/:id/:movieID', (req, res) => {
   const { id, movieID } = req.params;
@@ -118,15 +119,15 @@ app.delete('/users/:Username', async (req, res) => {
 app.delete('/users/:id', (req, res) => {
   const { id } = req.params;
 
-  let user = users.find(user => user.id == id);
+  let user = users.find((user) => user.id == id);
 
   if (user) {
-    users = users.filter(user => user.id != id);
+    users = users.filter((user) => user.id != id);
     res.status(200).send(`user ${id} has been deleted`);
   } else {
-    res.status(400).send('no such user')
+    res.status(400).send('no such user');
   }
-})
+});
 
 app.get('/', (req, res) => {
   res.send('Hello, world!');
@@ -155,10 +156,13 @@ app.get('/users/:Username', async (req, res) => {
 });
 
 app.post('/users/:Username/movies/:MovieID', async (req, res) => {
-  await Users.findOneAndUpdate({ Username: req.params.Username }, {
-    $push: { FavoriteMovies: req.params.MovieID }
-  },
-    { new: true })
+  await Users.findOneAndUpdate(
+    { Username: req.params.Username },
+    {
+      $push: { FavoriteMovies: req.params.MovieID },
+    },
+    { new: true }
+  )
     .then((updatedUser) => {
       res.json(updatedUser);
     })
@@ -168,36 +172,45 @@ app.post('/users/:Username/movies/:MovieID', async (req, res) => {
     });
 });
 
-app.put('/users/:Username', passport.authenticate('jwt', {
-  session: false
-}), async (req, res) => {
-  if (req.user.Username !== req.params.Username) {
-    return res.status(400).send('Permission denied');
-  }
-  await Users.findOneAndUpdate({ Username: req.params.Username }, {
-    $set:
-    {
-      Username: req.body.Username,
-      Password: req.body.Password,
-      Email: req.body.Email,
-      Birthday: req.body.Birthday
+app.put(
+  '/users/:Username',
+  passport.authenticate('jwt', {
+    session: false,
+  }),
+  async (req, res) => {
+    if (req.user.Username !== req.params.Username) {
+      return res.status(400).send('Permission denied');
     }
-  },
-    { new: true })
-    .then((updatedUser) => {
-      res.json(updatedUser);
-    })
-    .catch((err) => {
-      console.log(err);
-      res.status(500).send('Error: ' + err);
-    })
-});
+    await Users.findOneAndUpdate(
+      { Username: req.params.Username },
+      {
+        $set: {
+          Username: req.body.Username,
+          Password: req.body.Password,
+          Email: req.body.Email,
+          Birthday: req.body.Birthday,
+        },
+      },
+      { new: true }
+    )
+      .then((updatedUser) => {
+        res.json(updatedUser);
+      })
+      .catch((err) => {
+        console.log(err);
+        res.status(500).send('Error: ' + err);
+      });
+  }
+);
 
 app.post('/users/:Username/movies/:movieTitle', async (req, res) => {
-  await Users.findOneAndUpdate({ Username: req.params.Username }, {
-    $push: { FavoriteMovies: req.params.movieTitle }
-  },
-    { new: true })
+  await Users.findOneAndUpdate(
+    { Username: req.params.Username },
+    {
+      $push: { FavoriteMovies: req.params.movieTitle },
+    },
+    { new: true }
+  )
     .then((updatedUser) => {
       res.json(updatedUser);
     })
@@ -207,7 +220,7 @@ app.post('/users/:Username/movies/:movieTitle', async (req, res) => {
     });
 });
 
-app.get('/movies', passport.authenticate ('jwt', { session: false }), async (req, res) => {
+app.get('/movies', passport.authenticate('jwt', { session: false }), async (req, res) => {
   await Movies.find()
     .then((movies) => {
       res.status(201).json(movies);
@@ -218,7 +231,7 @@ app.get('/movies', passport.authenticate ('jwt', { session: false }), async (req
     });
 });
 
-app.get('/movies/:Title', passport.authenticate ('jwt', { session: false }), (req, res) => {
+app.get('/movies/:Title', passport.authenticate('jwt', { session: false }), (req, res) => {
   Movies.findOne({ Title: req.params.Title })
     .then((movie) => {
       if (!movie) {
@@ -230,16 +243,14 @@ app.get('/movies/:Title', passport.authenticate ('jwt', { session: false }), (re
       console.error(err);
       res.status(500).send('Error: ' + err);
     });
-  }
-);
+});
 
 app.get('/movies/genre/:genreName', passport.authenticate('jwt', { session: false }), (req, res) => {
-
   const genreName = req.params.genreName;
 
-  console.log("Genre requested:", req.params.genreName);
+  console.log('Genre requested:', req.params.genreName);
 
-  Movies.findOne({ "Genre.Name": genreName })
+  Movies.findOne({ 'Genre.Name': genreName })
     .then((movie) => {
       if (!movie) {
         return res.status(404).send('Error: ' + genreName + ' was not found');
@@ -250,16 +261,14 @@ app.get('/movies/genre/:genreName', passport.authenticate('jwt', { session: fals
       console.error(err);
       res.status(500).send('Error: ' + err);
     });
-}
-);
+});
 
 app.get('/movies/director/:directorName', passport.authenticate('jwt', { session: false }), (req, res) => {
-
   const directorName = req.params.directorName;
 
-  console.log("Director requested:", req.params.directorName);
+  console.log('Director requested:', req.params.directorName);
 
-  Movies.findOne({ "Director.Name": directorName })
+  Movies.findOne({ 'Director.Name': directorName })
     .then((movie) => {
       if (!movie) {
         return res.status(404).send('Error: ' + directorName + ' was not found');
@@ -270,8 +279,7 @@ app.get('/movies/director/:directorName', passport.authenticate('jwt', { session
       console.error(err);
       res.status(500).send('Error: ' + err);
     });
-  }
-);
+});
 
 app.use(express.static('public'));
 
